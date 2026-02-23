@@ -1,0 +1,365 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mongodb"
+  url      = env("MONGODB_URI")
+}
+
+enum UserType {
+  OWNER
+  VET
+  ADMIN
+}
+
+enum AppointmentType {
+  CHAT
+  VIDEO
+  IN_PERSON
+}
+
+enum AppointmentStatus {
+  PENDING
+  CONFIRMED
+  COMPLETED
+  CANCELLED
+}
+
+enum PaymentStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  REFUNDED
+}
+
+enum SubscriptionStatus {
+  PENDING
+  ACTIVE
+  CANCELLED
+  EXPIRED
+  FAILED
+}
+
+enum SubscriptionTier {
+  FREE
+  PRO
+  ENTERPRISE
+}
+
+model User {
+  id                String    @id @default(auto()) @map("_id") @db.ObjectId
+  email             String    @unique
+  phone             String
+  password          String
+  userType          UserType  @default(OWNER)
+  firstName         String
+  lastName          String
+  avatar            String?
+  location          Json?
+  isVerified        Boolean   @default(false)
+  emailVerified     Boolean   @default(false)
+  phoneVerified     Boolean   @default(false)
+  isActive Boolean @default(true) 
+  fcmToken          String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  // Relations
+  vetProfile        Vet?
+  sentMessages      ChatMessage[] @relation("SentMessages")
+  receivedMessages  ChatMessage[] @relation("ReceivedMessages")
+  appointments      Appointment[] @relation("owner")
+  vetAppointments   Appointment[] @relation("vet")
+  reviews           Review[]
+  transactions      Transaction[]
+  notifications     Notification[]
+  dminLogs          AdminLog[] 
+
+  @@index([userType])
+}
+
+model Vet {
+  id                    String            @id @default(auto()) @map("_id") @db.ObjectId
+  userId                String            @unique @db.ObjectId
+  licenseNumber         String            @unique
+  licenseDocument       String
+  licenseVerified       Boolean           @default(false)
+  specialties           String[]
+  experienceYears       Int               @default(0)
+  consultationFee       Float             @default(0)
+  rating                Float             @default(0)
+  totalReviews          Int               @default(0)
+  subscriptionTier      SubscriptionTier  @default(FREE)
+  subscriptionExpiresAt DateTime?
+  isFeatured            Boolean           @default(false)
+  featuredExpiresAt     DateTime?
+  isApproved            Boolean           @default(false)
+  approvalDate          DateTime?
+  bankDetails           Json?
+  totalEarnings         Float             @default(0)
+  pendingEarnings       Float             @default(0)
+  availableEarnings     Float             @default(0)
+  onlineStatus          Boolean           @default(false)
+  lastSeen              DateTime          @default(now())
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
+  workingHours          Json? 
+
+  // Relations
+  user                  User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  appointments          Appointment[]     @relation("vetAppointments")
+  reviews               Review[]
+  transactions          Transaction[]
+  subscriptions         Subscription[]
+  promotions            Promotion[]
+  earnings              VetEarning[]
+
+  @@index([isApproved])
+  @@index([subscriptionTier])
+  @@index([isFeatured])
+  @@index([rating])
+}
+
+model Appointment {
+  id              String            @id @default(auto()) @map("_id") @db.ObjectId
+  ownerId         String            @db.ObjectId
+  vetId           String            @db.ObjectId
+  type            AppointmentType
+  status          AppointmentStatus @default(PENDING)
+  scheduledAt     DateTime?
+  completedAt     DateTime?
+  consultationFee Float
+  platformFee     Float
+  videoCallFee    Float             @default(0)
+  totalAmount     Float
+  vetEarned       Float
+  notes           String?
+  symptoms        String[]
+  diagnosis       String?
+  prescription    String?
+  followUpDate    DateTime?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  // Relations
+  owner           User              @relation("owner", fields: [ownerId], references: [id], onDelete: Cascade)
+  vet             User              @relation("vet", fields: [vetId], references: [id], onDelete: Cascade)
+  vetProfile      Vet?              @relation("vetAppointments", fields: [vetId], references: [id], onDelete: Cascade)
+  chatMessages    ChatMessage[]
+  transaction     Transaction?
+  review          Review?
+  earning         VetEarning?
+
+  @@index([ownerId])
+  @@index([vetId])
+  @@index([status])
+  @@index([scheduledAt])
+  @@index([createdAt])
+}
+
+model ChatMessage {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  appointmentId String   @db.ObjectId
+  senderId      String   @db.ObjectId
+  receiverId    String   @db.ObjectId
+  message       String
+  mediaUrl      String?
+  mediaType     String?
+  isRead        Boolean  @default(false)
+  createdAt     DateTime @default(now())
+
+  // Relations
+  appointment   Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  sender        User        @relation("SentMessages", fields: [senderId], references: [id], onDelete: Cascade)
+  receiver      User        @relation("ReceivedMessages", fields: [receiverId], references: [id], onDelete: Cascade)
+
+  @@index([appointmentId])
+  @@index([senderId])
+  @@index([receiverId])
+  @@index([createdAt])
+}
+
+model Transaction {
+  id              String        @id @default(auto()) @map("_id") @db.ObjectId
+  appointmentId   String?       @unique @db.ObjectId
+  subscriptionId  String?       @db.ObjectId
+  userId          String        @db.ObjectId
+  vetId           String?       @db.ObjectId
+  type            String
+  amount          Float
+  platformFee     Float
+  vetEarned       Float?
+  paymentReference String       @unique
+  paymentStatus   PaymentStatus @default(PENDING)
+  paystackData    Json?
+  metadata        Json?
+  createdAt       DateTime      @default(now())
+
+  // Relations
+  appointment     Appointment?  @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  subscription    Subscription? @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  vet             Vet?          @relation(fields: [vetId], references: [id], onDelete: Cascade)
+
+  @@index([paymentStatus])
+  @@index([createdAt])
+  @@index([userId])
+  @@index([vetId])
+  @@index([subscriptionId])
+}
+
+model Review {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  appointmentId String   @unique @db.ObjectId
+  ownerId       String   @db.ObjectId
+  vetId         String   @db.ObjectId
+  rating        Int      @default(5)
+  comment       String?
+  createdAt     DateTime @default(now())
+
+  anonymous     Boolean  @default(false)      // For anonymous reviews
+  categories    Json?    @default("[]")       // Store as JSON array
+  vetReply      String?                       // Vet's response to review
+  vetReplyAt    DateTime?                     // When vet replied
+  reported      Boolean  @default(false)      // If review was reported
+  reportReason  String?                       // Reason for reporting
+  reportCount   Int      @default(0)          // How many times reported
+  helpful       String[] @default([])         // Array of user IDs who found helpful
+  
+  
+  updatedAt     DateTime @updatedAt
+  
+
+  // Relations
+  appointment   Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  owner         User        @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  vet           Vet         @relation(fields: [vetId], references: [id], onDelete: Cascade)
+
+  @@index([vetId])
+  @@index([rating])
+  @@index([createdAt])
+  @@index([reported])
+}
+
+// Subscription model
+model Subscription {
+  id                       String              @id @default(auto()) @map("_id") @db.ObjectId
+  createdAt                DateTime            @default(now())
+  vetId                    String              @db.ObjectId
+  amount                   Float
+  tier                     SubscriptionTier
+  status                   SubscriptionStatus  @default(PENDING)
+  paystackPlanCode         String?
+  paystackSubscriptionCode String?
+  paymentReference         String?
+  startsAt                 DateTime
+  expiresAt                DateTime
+  autoRenew                Boolean             @default(true)
+  cancelledAt              DateTime?
+  cancellationReason       String?
+  isActive                 Boolean             @default(false)
+  features                 Json?               @default("{}")
+  
+  // Relations
+  vet                      Vet                 @relation(fields: [vetId], references: [id], onDelete: Cascade)
+  transactions             Transaction[]
+
+  @@index([vetId])
+  @@index([status])
+  @@index([expiresAt])
+}
+
+
+model Promotion {
+  id              String        @id @default(auto()) @map("_id") @db.ObjectId
+  vetId           String        @db.ObjectId
+  type            String        // Add this
+  amount          Float         // Rename from amountPaid to amount
+  durationDays    Int
+  startsAt        DateTime
+  expiresAt       DateTime
+  status          String        @default("PENDING") // Add this
+  paymentStatus   String        @default("PENDING") // Add this
+  paymentReference String?      // Add this
+  isActive        Boolean       @default(true)
+  impressions     Int           @default(0)
+  clicks          Int           @default(0)
+  conversions     Int           @default(0)
+  autoRenew       Boolean       @default(false)
+  metadata        Json?        
+  cancelledAt     DateTime?    
+  cancellationReason String?   
+  createdAt       DateTime      @default(now())
+
+  vet             Vet           @relation(fields: [vetId], references: [id], onDelete: Cascade)
+
+  @@index([vetId])
+  @@index([isActive])
+  @@index([expiresAt])
+  @@index([type])
+  @@index([status])
+}
+
+model VetEarning {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  vetId         String   @db.ObjectId
+  appointmentId String?  @unique @db.ObjectId
+  amount        Float
+  type          String
+  status        String   @default("pending")
+  payoutDate    DateTime?
+  createdAt     DateTime @default(now())
+
+  // Relations
+  vet           Vet         @relation(fields: [vetId], references: [id], onDelete: Cascade)
+  appointment   Appointment? @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+
+  @@index([vetId])
+  @@index([status])
+  @@index([payoutDate])
+}
+
+model Notification {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String   @db.ObjectId
+  title     String
+  message   String
+  type      String
+  isRead    Boolean  @default(false)
+  data      Json?
+  createdAt DateTime @default(now())
+
+  // Relations
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([isRead])
+  @@index([createdAt])
+}
+
+model AdminLog {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  adminId   String   @db.ObjectId
+  action    String
+  entity    String
+  entityId  String?
+  oldData   Json?
+  newData   Json?
+  metadata  Json?
+  ipAddress String?
+  isActive  Boolean   @default(false)
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  //Relations
+  admin     User   @relation(fields: [adminId], references: [id], onDelete: Cascade) 
+
+
+  @@index([adminId])
+  @@index([createdAt])
+  @@index([action])
+}
