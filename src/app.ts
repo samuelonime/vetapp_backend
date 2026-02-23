@@ -21,6 +21,13 @@ const app: Application = express();
 // Set security HTTP headers
 app.use(helmet());
 
+app.get("/", (_req, res) => {
+  res.json({
+    status: "success",
+    message: "Vetconnect Backend is running 🚀",
+  });
+});
+
 // Enable CORS
 app.use(cors({
   origin: [
